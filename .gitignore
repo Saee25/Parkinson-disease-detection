@@ -1,0 +1,56 @@
+# --- Python ---
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# --- Secrets / local config (never commit) ---
+.env
+.env.*
+!.env.example
+
+# --- Node / frontend ---
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# --- OS & editors ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+*.swp
+*.swo
+.vscode/*
+!.vscode/extensions.json
+
+# --- Logs ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- ML / large binaries (optional) ---
+# Your trained files are ~60+ MB total — GitHub allows them, but they bloat history.
+# Uncomment the next two lines if you prefer a smaller repo and will run `python train_models.py` after clone:
+# backend/models/*.pkl
+# backend/models/*.h5

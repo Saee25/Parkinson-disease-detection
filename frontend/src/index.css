@@ -1,0 +1,19 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-blue-600: #2563eb;
+  --color-slate-50: #f8fafc;
+}
+
+html, body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--color-slate-50);
+  color: #0f172a;
+}
+
+/* Base accessibility focus styles */
+*:focus-visible {
+  outline: 2px solid var(--color-blue-600);
+  outline-offset: 2px;
+}

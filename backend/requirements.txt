@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+python-multipart
+numpy
+opencv-python
+librosa
+imageio-ffmpeg
+scipy
+tensorflow
+scikit-learn
+joblib
+pandas
