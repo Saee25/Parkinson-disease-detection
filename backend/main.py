@@ -31,11 +31,10 @@ async def lifespan(app: FastAPI):
         MODELS["severity"] = joblib.load(os.path.join(base_path, "severity_model.pkl"))
         MODELS["severity_scaler"] = joblib.load(os.path.join(base_path, "severity_scaler.pkl"))
         
-        # --- LOAD PYTORCH RESNET MODEL FOR SPIRALS ---
-        print("Loading PyTorch ResNet18 model...")
         device = torch.device("cpu")
         
-        # 1. Rebuild the architecture
+        # --- LOAD PYTORCH RESNET MODEL FOR SPIRALS ---
+        print("Loading PyTorch ResNet18 model for Spirals...")
         spiral_model = pt_models.resnet18(weights=None)
         num_ftrs = spiral_model.fc.in_features
         spiral_model.fc = nn.Sequential(
@@ -45,15 +44,25 @@ async def lifespan(app: FastAPI):
             nn.Linear(64, 1),
             nn.Sigmoid()
         )
-        
-        # 2. Load the saved weights
-        model_path = os.path.join(base_path, "spiral_resnet18.pth")
-        spiral_model.load_state_dict(torch.load(model_path, map_location=device))
-        
-        # 3. Set to evaluation mode
+        spiral_model_path = os.path.join(base_path, "spiral_resnet18.pth")
+        spiral_model.load_state_dict(torch.load(spiral_model_path, map_location=device))
         spiral_model.eval()
-        
         MODELS["spiral"] = spiral_model
+        
+        # --- LOAD PYTORCH RESNET MODEL FOR WAVES ---
+        print("Loading PyTorch ResNet18 model for Waves...")
+        wave_model = pt_models.resnet18(weights=None)
+        wave_model.fc = nn.Sequential(
+            nn.Linear(num_ftrs, 64),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(64, 1),
+            nn.Sigmoid()
+        )
+        wave_model_path = os.path.join(base_path, "wave_resnet18.pth")
+        wave_model.load_state_dict(torch.load(wave_model_path, map_location=device))
+        wave_model.eval()
+        MODELS["wave"] = wave_model
         # ---------------------------------------------
         
         MODELS_LOADED = True
@@ -90,33 +99,56 @@ async def health():
 @app.post("/analyze/full")
 async def analyze_full(
     spiralData: str = Form(...),
+    waveData: str = Form(...),     # <--- NEW: Accepts wave data from frontend
     voiceBlob: UploadFile = File(...)
 ):
     if not MODELS_LOADED:
         raise HTTPException(status_code=503, detail="Models are not loaded. Check server logs.")
     try:
         # ==========================================
-        # 1. Parse and Predict Spiral Data (PyTorch)
+        # 1A. Parse and Predict Spiral Data
         # ==========================================
         print("Parsing spiral data...")
         spiral_json = json.loads(spiralData)
-        traces = spiral_json.get("strokes", [])
+        spiral_traces = spiral_json.get("strokes", [])
         
         print("Preprocessing spiral...")
-        spiral_img_array = preprocess_spiral(traces)
+        spiral_img_array = preprocess_spiral(spiral_traces)
         
         print("Predicting spiral with PyTorch...")
-        # Convert numpy array to PyTorch tensor
-        img_tensor = torch.tensor(spiral_img_array, dtype=torch.float32)
-        
-        with torch.no_grad(): # Disable gradient tracking for fast inference
-            output = MODELS["spiral"](img_tensor)
-            spiral_prob = float(output.item())
+        spiral_tensor = torch.tensor(spiral_img_array, dtype=torch.float32)
+        with torch.no_grad():
+            spiral_output = MODELS["spiral"](spiral_tensor)
+            spiral_prob = float(spiral_output.item())
             
         spiral_result = "Parkinson's Detected" if spiral_prob > 0.5 else "Healthy"
 
         # ==========================================
-        # 2. Process and Predict Voice Data (Scikit-Learn)
+        # 1B. Parse and Predict Wave Data
+        # ==========================================
+        print("Parsing wave data...")
+        wave_json = json.loads(waveData)
+        wave_traces = wave_json.get("strokes", [])
+        
+        print("Preprocessing wave...")
+        wave_img_array = preprocess_spiral(wave_traces) # Safely reusing the exact same image formatting
+        
+        print("Predicting wave with PyTorch...")
+        wave_tensor = torch.tensor(wave_img_array, dtype=torch.float32)
+        with torch.no_grad():
+            wave_output = MODELS["wave"](wave_tensor)
+            wave_prob = float(wave_output.item())
+            
+        wave_result = "Parkinson's Detected" if wave_prob > 0.5 else "Healthy"
+
+        # ==========================================
+        # 1C. Calculate Visual Ensemble Score
+        # ==========================================
+        ensemble_prob = (spiral_prob + wave_prob) / 2.0
+        ensemble_result = "Parkinson's Detected" if ensemble_prob > 0.5 else "Healthy"
+
+        # ==========================================
+        # 2. Process and Predict Voice Data
         # ==========================================
         print("Reading voice blob...")
         audio_content = await voiceBlob.read()
@@ -124,7 +156,6 @@ async def analyze_full(
         
         print("Preprocessing voice...")
         voice_features = preprocess_voice(audio_content)
-        print(f"Voice features extracted: {voice_features.shape}")
         
         print("Scaling voice features...")
         voice_scaled = MODELS["voice_scaler"].transform(voice_features)
@@ -148,15 +179,16 @@ async def analyze_full(
         # 3. Predict Severity (UPDRS)
         # ==========================================
         print("Predicting severity...")
-        # The severity model uses 16 acoustic features (indices 3-17 and 21 from the 22-vector)
         severity_features = np.concatenate([voice_features[:, 3:18], voice_features[:, 21:22]], axis=1)
         severity_scaled = MODELS["severity_scaler"].transform(severity_features)
         severity_score = float(MODELS["severity"].predict(severity_scaled)[0])
         
         print("\n=== FINAL ANALYSIS SUMMARY ===")
-        print(f"  SPIRAL: {spiral_result} (Prob: {spiral_prob*100:.1f}%)")
-        print(f"  VOICE:  {voice_result} (Prob: {parkinson_voice_prob*100:.1f}%)")
-        print(f"  UPDRS:  {severity_score:.2f}")
+        print(f"  SPIRAL:   {spiral_result} (Prob: {spiral_prob*100:.1f}%)")
+        print(f"  WAVE:     {wave_result}   (Prob: {wave_prob*100:.1f}%)")
+        print(f"  ENSEMBLE: {ensemble_result} (Prob: {ensemble_prob*100:.1f}%)")
+        print(f"  VOICE:    {voice_result}  (Prob: {parkinson_voice_prob*100:.1f}%)")
+        print(f"  UPDRS:    {severity_score:.2f}")
         print("==============================\n")
         
         print("Analysis complete!")
@@ -174,6 +206,16 @@ async def analyze_full(
                     "prediction": spiral_result,
                     "probability": spiral_prob,
                     "status": 1 if spiral_prob > 0.5 else 0
+                },
+                "wave": {
+                    "prediction": wave_result,
+                    "probability": wave_prob,
+                    "status": 1 if wave_prob > 0.5 else 0
+                },
+                "visual_ensemble": {
+                    "prediction": ensemble_result,
+                    "probability": ensemble_prob,
+                    "status": 1 if ensemble_prob > 0.5 else 0
                 },
                 "severity": {
                     "score": round(severity_score, 2),

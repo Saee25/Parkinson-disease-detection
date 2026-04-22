@@ -10,12 +10,14 @@ const Dashboard = ({ setActiveView }) => {
   const handleStartTest = (testName) => {
     if (testName === 'Spiral Drawing Test') {
       setActiveView('spiral');
+    } else if (testName === 'Wave Drawing Test') {
+      setActiveView('wave');
     } else if (testName === 'Voice Analysis Test') {
       setActiveView('voice');
     }
   };
 
-  const allComplete = completedTests.spiral && completedTests.voice;
+  const allComplete = completedTests.spiral && completedTests.wave && completedTests.voice;
 
   const handleSubmit = async () => {
      setActiveView('loading');
@@ -69,13 +71,20 @@ const Dashboard = ({ setActiveView }) => {
         <p className="text-slate-600 text-lg">Select an assessment below to begin a new evaluation.</p>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative z-10">
         <TestCard 
           title="Spiral Drawing Test"
           description="Evaluate fine motor control and tremor severity by tracing a standard spiral pattern."
           iconName="PenTool"
           onClick={() => handleStartTest('Spiral Drawing Test')}
           isCompleted={completedTests.spiral}
+        />
+        <TestCard 
+          title="Wave Drawing Test"
+          description="Assess motor stability and smoothness of movement by tracing a rhythmic wave pattern."
+          iconName="Activity"
+          onClick={() => handleStartTest('Wave Drawing Test')}
+          isCompleted={completedTests.wave}
         />
         <TestCard 
           title="Voice Analysis Test"

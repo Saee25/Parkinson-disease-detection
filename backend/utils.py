@@ -67,13 +67,15 @@ def preprocess_spiral(traces, size=(224, 224)):
     Converts list of strokes/coordinates into a 224x224 RGB image
     and applies ImageNet normalization for ResNet18 (PyTorch).
     """
-    bg = np.zeros((500, 500), dtype=np.uint8)
+    # Initialize a white background (255)
+    bg = np.ones((500, 500), dtype=np.uint8) * 255
     
     for stroke in traces:
         if len(stroke) < 2:
             continue
         points = np.array([[p['x'], p['y']] for p in stroke], dtype=np.int32)
-        cv2.polylines(bg, [points], False, 255, thickness=4)
+        # Draw black lines (0) on the white background
+        cv2.polylines(bg, [points], False, 0, thickness=4)
     
     resized = cv2.resize(bg, size)
     rgb = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)

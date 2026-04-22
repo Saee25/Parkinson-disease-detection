@@ -7,24 +7,28 @@ export const useTestContext = () => useContext(TestContext);
 export const TestProvider = ({ children }) => {
   const [completedTests, setCompletedTests] = useState({
     spiral: false,
+    wave: false,
     voice: false
   });
 
   const [testData, setTestData] = useState({
     spiralData: null,
+    waveData: null,
     voiceBlob: null
   });
 
   const [results, setResults] = useState(null);
 
   const saveTestResult = (testType, data) => {
-    setTestData(prev => ({ ...prev, [testType === 'spiral' ? 'spiralData' : 'voiceBlob']: data }));
+    const dataKey = testType === 'spiral' ? 'spiralData' : 
+                   testType === 'wave' ? 'waveData' : 'voiceBlob';
+    setTestData(prev => ({ ...prev, [dataKey]: data }));
     setCompletedTests(prev => ({ ...prev, [testType]: true }));
   };
 
   const resetTests = () => {
-    setCompletedTests({ spiral: false, voice: false });
-    setTestData({ spiralData: null, voiceBlob: null });
+    setCompletedTests({ spiral: false, wave: false, voice: false });
+    setTestData({ spiralData: null, waveData: null, voiceBlob: null });
     setResults(null);
   };
 
@@ -32,6 +36,9 @@ export const TestProvider = ({ children }) => {
     const formData = new FormData();
     if (testData.spiralData) {
         formData.append('spiralData', JSON.stringify(testData.spiralData));
+    }
+    if (testData.waveData) {
+        formData.append('waveData', JSON.stringify(testData.waveData));
     }
     if (testData.voiceBlob) {
         formData.append('voiceBlob', testData.voiceBlob, 'phonation_test.webm');

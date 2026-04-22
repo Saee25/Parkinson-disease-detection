@@ -21,21 +21,24 @@ const Results = ({ setActiveView }) => {
 
   const voicePd = results.voice.status === 1;
   const spiralPd = results.spiral.status === 1;
-  const flags = [voicePd, spiralPd].filter(Boolean).length;
+  const wavePd = results.wave.status === 1;
+  const ensemblePd = results.visual_ensemble.status === 1;
+
+  const flags = [voicePd, ensemblePd].filter(Boolean).length;
   const composite =
     flags >= 2
-      ? 'High agreement between voice and spiral classifiers.'
+      ? 'High agreement between voice and visual ensemble (spiral+wave) classifiers.'
       : flags === 1
         ? 'Mixed signals: one modality flagged Parkinsonian patterns.'
-        : 'Neither voice nor spiral classifiers crossed the screening threshold.';
+        : 'Neither voice nor visual classifiers crossed the screening threshold.';
 
   const sev = severityBand(Number(results.severity?.score));
 
   return (
-    <div className="animate-fade-in max-w-4xl mx-auto w-full">
+    <div className="animate-fade-in max-w-5xl mx-auto w-full">
       <header className="mb-8 text-center pb-8 border-b border-slate-200">
-        <div className={`mx-auto w-16 h-16 ${results.voice.status || results.spiral.status ? 'bg-red-100' : 'bg-green-100'} rounded-full flex items-center justify-center mb-4`}>
-            {results.voice.status || results.spiral.status ? (
+        <div className={`mx-auto w-16 h-16 ${results.voice.status || results.visual_ensemble.status ? 'bg-red-100' : 'bg-green-100'} rounded-full flex items-center justify-center mb-4`}>
+            {results.voice.status || results.visual_ensemble.status ? (
                 <Activity className="w-8 h-8 text-red-600" />
             ) : (
                 <CheckCircle2 className="w-8 h-8 text-green-600" />
@@ -43,109 +46,152 @@ const Results = ({ setActiveView }) => {
         </div>
         <h1 className="text-3xl font-bold text-slate-900 mb-2">Analysis Complete</h1>
         <p className="text-slate-600 text-lg">
-            {results.voice.status || results.spiral.status 
+            {results.voice.status || results.visual_ensemble.status 
              ? "Patterns suggestive of Parkinson's Disease were detected." 
              : "No significant Parkinsonian markers were detected."}
         </p>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
-          
+      {/* Primary Results Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {/* Spiral Result */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col items-start hover:shadow-md transition-shadow">
-           <div className={`p-3 ${results.spiral.status ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'} rounded-lg mb-4`}>
-               <Activity className="w-6 h-6" />
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col items-start hover:shadow-md transition-shadow">
+           <div className={`p-2 ${results.spiral.status ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'} rounded-lg mb-3`}>
+               <Activity className="w-5 h-5" />
            </div>
-           <h3 className="text-slate-500 text-sm font-medium mb-1">Handwriting Analysis</h3>
-           <div className="text-xl font-bold text-slate-900 mb-2">{results.spiral.prediction}</div>
-           <div className="text-sm text-slate-500">Prob: {(results.spiral.probability * 100).toFixed(1)}%</div>
+           <h3 className="text-slate-500 text-xs font-medium mb-1 uppercase tracking-wider">Spiral Test</h3>
+           <div className="text-lg font-bold text-slate-900 mb-1">{results.spiral.prediction}</div>
+           <div className="text-xs text-slate-500 font-medium">Prob: {(results.spiral.probability * 100).toFixed(1)}%</div>
+        </div>
+
+        {/* Wave Result */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col items-start hover:shadow-md transition-shadow">
+           <div className={`p-2 ${results.wave.status ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600'} rounded-lg mb-3`}>
+               <Activity className="w-5 h-5" />
+           </div>
+           <h3 className="text-slate-500 text-xs font-medium mb-1 uppercase tracking-wider">Wave Test</h3>
+           <div className="text-lg font-bold text-slate-900 mb-1">{results.wave.prediction}</div>
+           <div className="text-xs text-slate-500 font-medium">Prob: {(results.wave.probability * 100).toFixed(1)}%</div>
+        </div>
+
+        {/* Ensemble Result */}
+        <div className="bg-white p-5 rounded-xl border-2 border-blue-100 bg-blue-50/30 shadow-sm flex flex-col items-start hover:shadow-md transition-shadow">
+           <div className={`p-2 ${results.visual_ensemble.status ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'} rounded-lg mb-3`}>
+               <CheckCircle2 className="w-5 h-5" />
+           </div>
+           <h3 className="text-blue-600 text-xs font-bold mb-1 uppercase tracking-wider">Visual Ensemble</h3>
+           <div className="text-lg font-black text-slate-900 mb-1">{results.visual_ensemble.prediction}</div>
+           <div className="text-xs text-blue-700 font-bold">Avg Prob: {(results.visual_ensemble.probability * 100).toFixed(1)}%</div>
         </div>
 
         {/* Voice Result */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col items-start hover:shadow-md transition-shadow">
-           <div className={`p-3 ${results.voice.status ? 'bg-red-50 text-red-600' : 'bg-purple-50 text-purple-600'} rounded-lg mb-4`}>
-               <Stethoscope className="w-6 h-6" />
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col items-start hover:shadow-md transition-shadow">
+           <div className={`p-2 ${results.voice.status ? 'bg-red-50 text-red-600' : 'bg-purple-50 text-purple-600'} rounded-lg mb-3`}>
+               <Stethoscope className="w-5 h-5" />
            </div>
-           <h3 className="text-slate-500 text-sm font-medium mb-1">Acoustic Analysis</h3>
-           <div className="text-xl font-bold text-slate-900 mb-2">{results.voice.prediction}</div>
-           <div className="text-sm text-slate-500">
-             Model confidence: {(results.voice.confidence * 100).toFixed(0)}%
-             {typeof results.voice.parkinson_probability === 'number' && (
-               <span className="block mt-1">
-                 P(PD | voice): {(results.voice.parkinson_probability * 100).toFixed(1)}%
-               </span>
-             )}
-           </div>
+           <h3 className="text-slate-500 text-xs font-medium mb-1 uppercase tracking-wider">Voice Analysis</h3>
+           <div className="text-lg font-bold text-slate-900 mb-1">{results.voice.prediction}</div>
+           <div className="text-xs text-slate-500 font-medium">P(PD): {(results.voice.parkinson_probability * 100).toFixed(1)}%</div>
         </div>
-
-        {/* Severity Score */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col items-start hover:shadow-md transition-shadow">
-           <div className="p-3 bg-orange-50 text-orange-600 rounded-lg mb-4">
-               <TrendingDown className="w-6 h-6" />
-           </div>
-           <h3 className="text-slate-500 text-sm font-medium mb-1">Predicted motor severity (UPDRS)</h3>
-           <div className="text-3xl font-bold text-slate-900 mb-2">{results.severity.score}</div>
-           <p className="text-xs text-slate-500 mb-1">
-             Band: <span className="font-medium text-slate-700">{sev.label}</span>
-           </p>
-           <p className="text-xs text-slate-400">{sev.hint}</p>
-           <p className="text-xs text-slate-400 mt-2">Error margin (MAE-based): ±{results.severity.margin_of_error}</p>
-        </div>
-
       </div>
 
-      <section className="mb-10 bg-slate-50 border border-slate-200 rounded-2xl p-6 md:p-8">
-        <h2 className="text-lg font-bold text-slate-900 mb-4">Full report matrix</h2>
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+      {/* Severity & Synthesis */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
+        <div className="lg:col-span-1 bg-white p-6 rounded-2xl border border-orange-100 shadow-sm flex flex-col items-start bg-gradient-to-br from-white to-orange-50/30">
+           <div className="p-3 bg-orange-50 text-orange-600 rounded-xl mb-4">
+               <TrendingDown className="w-6 h-6" />
+           </div>
+           <h3 className="text-slate-500 text-sm font-semibold mb-1 uppercase tracking-wide">Predicted motor severity (UPDRS)</h3>
+           <div className="text-4xl font-black text-slate-900 mb-2">{results.severity.score}</div>
+           <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-800 mb-3">
+             {sev.label}
+           </div>
+           <p className="text-sm text-slate-600 leading-snug">{sev.hint}</p>
+           <p className="text-[10px] text-slate-400 mt-4 italic">Error margin: ±{results.severity.margin_of_error} points</p>
+        </div>
+
+        <div className="lg:col-span-2 bg-slate-900 text-white p-8 rounded-2xl shadow-xl flex flex-col justify-center relative overflow-hidden">
+           <div className="absolute top-0 right-0 p-8 opacity-10">
+              <Activity className="w-32 h-32" />
+           </div>
+           <h3 className="text-blue-400 text-sm font-bold mb-4 uppercase tracking-widest">Diagnostic Synthesis</h3>
+           <p className="text-xl md:text-2xl font-medium leading-relaxed mb-6">
+             {composite}
+           </p>
+           <div className="flex items-center text-slate-400 text-sm italic">
+             <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mr-2" />
+             Aggregating results from acoustic features and motor drawing patterns.
+           </div>
+        </div>
+      </div>
+
+      {/* Detailed Data Matrix */}
+      <section className="mb-10 bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="bg-slate-50 px-6 py-4 border-b border-slate-200">
+          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-widest">Detailed analysis matrix</h2>
+        </div>
+        <div className="overflow-x-auto">
           <table className="min-w-full text-sm text-left">
-            <thead className="bg-slate-100 text-slate-600 uppercase text-xs tracking-wide">
+            <thead className="bg-slate-100/50 text-slate-500 uppercase text-[10px] font-bold tracking-wider">
               <tr>
-                <th className="px-4 py-3">Modality</th>
-                <th className="px-4 py-3">Output</th>
-                <th className="px-4 py-3">Score / probability</th>
-                <th className="px-4 py-3">Dataset / model</th>
+                <th className="px-6 py-4">Modality</th>
+                <th className="px-6 py-4">Clinical Verdict</th>
+                <th className="px-6 py-4">Confidence / Prob.</th>
+                <th className="px-6 py-4">Model Architecture</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-800">
               <tr>
-                <td className="px-4 py-3 font-medium">Voice screening</td>
-                <td className="px-4 py-3">{results.voice.prediction}</td>
-                <td className="px-4 py-3">
-                  {(results.voice.confidence * 100).toFixed(0)}% conf.
-                  {typeof results.voice.parkinson_probability === 'number' && (
-                    <span className="block text-slate-500">
-                      P(PD): {(results.voice.parkinson_probability * 100).toFixed(1)}%
-                    </span>
-                  )}
+                <td className="px-6 py-4 font-bold text-slate-900">Voice Screening</td>
+                <td className="px-6 py-4">
+                  <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${results.voice.status ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                    {results.voice.prediction}
+                  </span>
                 </td>
-                <td className="px-4 py-3 text-slate-600">Vikas Ukani features → RF classifier</td>
+                <td className="px-6 py-4 font-mono font-medium">{(results.voice.parkinson_probability * 100).toFixed(1)}%</td>
+                <td className="px-6 py-4 text-slate-500">RF Classifier (Vikas Ukani features)</td>
               </tr>
               <tr>
-                <td className="px-4 py-3 font-medium">Spiral / drawing</td>
-                <td className="px-4 py-3">{results.spiral.prediction}</td>
-                <td className="px-4 py-3">{(results.spiral.probability * 100).toFixed(1)}% P(PD)</td>
-                <td className="px-4 py-3 text-slate-600">Spiral ResNet18 (224×224 RGB)</td>
+                <td className="px-6 py-4 font-bold text-slate-900">Spiral Drawing</td>
+                <td className="px-6 py-4">
+                  <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${results.spiral.status ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                    {results.spiral.prediction}
+                  </span>
+                </td>
+                <td className="px-6 py-4 font-mono font-medium">{(results.spiral.probability * 100).toFixed(1)}%</td>
+                <td className="px-6 py-4 text-slate-500">ResNet18 (224×224 RGB)</td>
               </tr>
               <tr>
-                <td className="px-4 py-3 font-medium">Severity (acoustic)</td>
-                <td className="px-4 py-3">{sev.label}</td>
-                <td className="px-4 py-3">
-                  {results.severity.score} motor UPDRS (est.)
+                <td className="px-6 py-4 font-bold text-slate-900">Wave Drawing</td>
+                <td className="px-6 py-4">
+                  <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${results.wave.status ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                    {results.wave.prediction}
+                  </span>
                 </td>
-                <td className="px-4 py-3 text-slate-600">Laila Qadir Musib acoustic → RF regressor</td>
+                <td className="px-6 py-4 font-mono font-medium">{(results.wave.probability * 100).toFixed(1)}%</td>
+                <td className="px-6 py-4 text-slate-500">ResNet18 (224×224 RGB)</td>
+              </tr>
+              <tr className="bg-blue-50/50">
+                <td className="px-6 py-4 font-bold text-blue-900">Visual Ensemble</td>
+                <td className="px-6 py-4">
+                  <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${results.visual_ensemble.status ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                    {results.visual_ensemble.prediction}
+                  </span>
+                </td>
+                <td className="px-6 py-4 font-mono font-bold text-blue-900">{(results.visual_ensemble.probability * 100).toFixed(1)}%</td>
+                <td className="px-6 py-4 text-slate-500 italic">Mean(Spiral, Wave)</td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p className="mt-4 text-sm text-slate-600 leading-relaxed">
-          <span className="font-semibold text-slate-800">Synthesis.</span> {composite} Severity is predicted from the
-          same microphone recording using acoustic features aligned to the progression dataset (not from the spiral image).
-        </p>
-        <p className="mt-3 text-xs text-slate-500 leading-relaxed">
+      </section>
+
+      <div className="flex flex-col items-center mb-12">
+        <p className="mt-3 text-xs text-slate-500 text-center max-w-2xl leading-relaxed">
           This tool is for education and demonstration only. It is not a medical device and must not replace clinical
           diagnosis or treatment decisions.
         </p>
-      </section>
+      </div>
       
       <div className="flex justify-center">
          <button 
