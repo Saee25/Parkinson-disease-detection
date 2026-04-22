@@ -75,13 +75,13 @@ const Results = ({ setActiveView }) => {
         </div>
 
         {/* Ensemble Result */}
-        <div className="bg-white p-5 rounded-xl border-2 border-blue-100 bg-blue-50/30 shadow-sm flex flex-col items-start hover:shadow-md transition-shadow">
-           <div className={`p-2 ${results.visual_ensemble.status ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'} rounded-lg mb-3`}>
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col items-start hover:shadow-md transition-shadow">
+           <div className={`p-2 ${results.visual_ensemble.status ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-600'} rounded-lg mb-3`}>
                <CheckCircle2 className="w-5 h-5" />
            </div>
-           <h3 className="text-blue-600 text-xs font-bold mb-1 uppercase tracking-wider">Visual Ensemble</h3>
-           <div className="text-lg font-black text-slate-900 mb-1">{results.visual_ensemble.prediction}</div>
-           <div className="text-xs text-blue-700 font-bold">Avg Prob: {(results.visual_ensemble.probability * 100).toFixed(1)}%</div>
+           <h3 className="text-slate-500 text-xs font-medium mb-1 uppercase tracking-wider">Visual Ensemble</h3>
+           <div className="text-lg font-bold text-slate-900 mb-1">{results.visual_ensemble.prediction}</div>
+           <div className="text-xs text-slate-500 font-medium">Avg Prob: {(results.visual_ensemble.probability * 100).toFixed(1)}%</div>
         </div>
 
         {/* Voice Result */}
@@ -96,8 +96,8 @@ const Results = ({ setActiveView }) => {
       </div>
 
       {/* Severity & Synthesis */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
-        <div className="lg:col-span-1 bg-white p-6 rounded-2xl border border-orange-100 shadow-sm flex flex-col items-start bg-gradient-to-br from-white to-orange-50/30">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col items-start">
            <div className="p-3 bg-orange-50 text-orange-600 rounded-xl mb-4">
                <TrendingDown className="w-6 h-6" />
            </div>
@@ -110,17 +110,14 @@ const Results = ({ setActiveView }) => {
            <p className="text-[10px] text-slate-400 mt-4 italic">Error margin: ±{results.severity.margin_of_error} points</p>
         </div>
 
-        <div className="lg:col-span-2 bg-slate-900 text-white p-8 rounded-2xl shadow-xl flex flex-col justify-center relative overflow-hidden">
-           <div className="absolute top-0 right-0 p-8 opacity-10">
-              <Activity className="w-32 h-32" />
-           </div>
-           <h3 className="text-blue-400 text-sm font-bold mb-4 uppercase tracking-widest">Diagnostic Synthesis</h3>
-           <p className="text-xl md:text-2xl font-medium leading-relaxed mb-6">
+        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-center">
+           <h3 className="text-slate-400 text-xs font-bold mb-4 uppercase tracking-widest">Diagnostic Summary</h3>
+           <p className="text-xl md:text-2xl font-bold text-slate-900 leading-tight mb-6">
              {composite}
            </p>
-           <div className="flex items-center text-slate-400 text-sm italic">
-             <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mr-2" />
-             Aggregating results from acoustic features and motor drawing patterns.
+           <div className="flex items-center text-slate-500 text-sm">
+             <div className="w-2 h-2 rounded-full bg-blue-500 mr-3" />
+             This summary aggregates results from all modalities to provide a combined clinical perspective.
            </div>
         </div>
       </div>

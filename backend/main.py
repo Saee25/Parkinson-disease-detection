@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional
 import joblib
 import torch
 import torch.nn as nn
@@ -14,7 +15,9 @@ import numpy as np
 _BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 if _BACKEND_DIR not in sys.path:
     sys.path.insert(0, _BACKEND_DIR)
-from utils import preprocess_voice, preprocess_spiral
+
+# IMPORT ALL PREPROCESSORS INCLUDING THE NEW OPENCV CLEANER
+from utils import preprocess_voice, preprocess_spiral, preprocess_uploaded_image
 
 # Global variables to store models
 MODELS = {}
@@ -98,59 +101,77 @@ async def health():
 
 @app.post("/analyze/full")
 async def analyze_full(
-    spiralData: str = Form(...),
-    waveData: str = Form(...),     # <--- NEW: Accepts wave data from frontend
-    voiceBlob: UploadFile = File(...)
+    # The only mandatory file is the voice recording
+    voiceBlob: UploadFile = File(...),
+    
+    # NEW: Making image inputs optional so it accepts Strings OR Files
+    spiralData: Optional[str] = Form(None),
+    waveData: Optional[str] = Form(None),
+    spiralFile: Optional[UploadFile] = File(None),
+    waveFile: Optional[UploadFile] = File(None)
 ):
     if not MODELS_LOADED:
         raise HTTPException(status_code=503, detail="Models are not loaded. Check server logs.")
     try:
+        # =====================================================================
+        # 🚨 DOMAIN SHIFT MITIGATION THRESHOLD 🚨
+        # Adjusting from 0.50 to 0.70 to account for laptop trackpad aliasing 
+        # and ambient microphone echo.
+        # =====================================================================
+        THRESHOLD = 0.70
+
         # ==========================================
         # 1A. Parse and Predict Spiral Data
         # ==========================================
-        print("Parsing spiral data...")
-        spiral_json = json.loads(spiralData)
-        spiral_traces = spiral_json.get("strokes", [])
-        
-        print("Preprocessing spiral...")
-        spiral_img_array = preprocess_spiral(spiral_traces)
-        
+        print("\nProcessing spiral input...")
+        if spiralFile:
+            print(" -> Detected Physical Photo Upload. Running OpenCV cleaner...")
+            spiral_bytes = await spiralFile.read()
+            spiral_img_array = preprocess_uploaded_image(spiral_bytes)
+        elif spiralData:
+            print(" -> Detected Digital Canvas Data. Drawing strokes...")
+            spiral_json = json.loads(spiralData)
+            spiral_img_array = preprocess_spiral(spiral_json.get("strokes", []))
+        else:
+            raise ValueError("No spiral data provided. Please draw or upload a photo.")
+
         print("Predicting spiral with PyTorch...")
         spiral_tensor = torch.tensor(spiral_img_array, dtype=torch.float32)
         with torch.no_grad():
-            spiral_output = MODELS["spiral"](spiral_tensor)
-            spiral_prob = float(spiral_output.item())
-            
-        spiral_result = "Parkinson's Detected" if spiral_prob > 0.5 else "Healthy"
+            spiral_prob = float(MODELS["spiral"](spiral_tensor).item())
+        spiral_result = "Parkinson's Detected" if spiral_prob > THRESHOLD else "Healthy"
 
         # ==========================================
         # 1B. Parse and Predict Wave Data
         # ==========================================
-        print("Parsing wave data...")
-        wave_json = json.loads(waveData)
-        wave_traces = wave_json.get("strokes", [])
-        
-        print("Preprocessing wave...")
-        wave_img_array = preprocess_spiral(wave_traces) # Safely reusing the exact same image formatting
-        
+        print("\nProcessing wave input...")
+        if waveFile:
+            print(" -> Detected Physical Photo Upload. Running OpenCV cleaner...")
+            wave_bytes = await waveFile.read()
+            wave_img_array = preprocess_uploaded_image(wave_bytes)
+        elif waveData:
+            print(" -> Detected Digital Canvas Data. Drawing strokes...")
+            wave_json = json.loads(waveData)
+            wave_img_array = preprocess_spiral(wave_json.get("strokes", [])) 
+        else:
+            raise ValueError("No wave data provided. Please draw or upload a photo.")
+
         print("Predicting wave with PyTorch...")
         wave_tensor = torch.tensor(wave_img_array, dtype=torch.float32)
         with torch.no_grad():
-            wave_output = MODELS["wave"](wave_tensor)
-            wave_prob = float(wave_output.item())
-            
-        wave_result = "Parkinson's Detected" if wave_prob > 0.5 else "Healthy"
+            wave_prob = float(MODELS["wave"](wave_tensor).item())
+        wave_result = "Parkinson's Detected" if wave_prob > THRESHOLD else "Healthy"
 
         # ==========================================
         # 1C. Calculate Visual Ensemble Score
         # ==========================================
         ensemble_prob = (spiral_prob + wave_prob) / 2.0
-        ensemble_result = "Parkinson's Detected" if ensemble_prob > 0.5 else "Healthy"
+        ensemble_result = "Parkinson's Detected" if ensemble_prob > THRESHOLD else "Healthy"
 
         # ==========================================
         # 2. Process and Predict Voice Data
         # ==========================================
-        print("Reading voice blob...")
+        print("\nReading voice blob...")
         audio_content = await voiceBlob.read()
         print(f"Voice blob size: {len(audio_content)} bytes")
         
@@ -163,7 +184,6 @@ async def analyze_full(
         print("Predicting voice...")
         voice_clf = MODELS["voice"]
         voice_proba = voice_clf.predict_proba(voice_scaled)[0]
-        voice_prediction = int(voice_clf.predict(voice_scaled)[0])
         voice_confidence = float(np.max(voice_proba))
         
         classes = list(voice_clf.classes_)
@@ -173,6 +193,7 @@ async def analyze_full(
             pd_idx = len(classes) - 1
             
         parkinson_voice_prob = float(voice_proba[pd_idx])
+        voice_prediction = 1 if parkinson_voice_prob > THRESHOLD else 0
         voice_result = "Parkinson's Detected" if voice_prediction == 1 else "Healthy"
         
         # ==========================================
@@ -184,11 +205,12 @@ async def analyze_full(
         severity_score = float(MODELS["severity"].predict(severity_scaled)[0])
         
         print("\n=== FINAL ANALYSIS SUMMARY ===")
-        print(f"  SPIRAL:   {spiral_result} (Prob: {spiral_prob*100:.1f}%)")
-        print(f"  WAVE:     {wave_result}   (Prob: {wave_prob*100:.1f}%)")
-        print(f"  ENSEMBLE: {ensemble_result} (Prob: {ensemble_prob*100:.1f}%)")
-        print(f"  VOICE:    {voice_result}  (Prob: {parkinson_voice_prob*100:.1f}%)")
-        print(f"  UPDRS:    {severity_score:.2f}")
+        print(f"  THRESHOLD:  > {THRESHOLD*100:.0f}%")
+        print(f"  SPIRAL:     {spiral_result} (Prob: {spiral_prob*100:.1f}%)")
+        print(f"  WAVE:       {wave_result}   (Prob: {wave_prob*100:.1f}%)")
+        print(f"  ENSEMBLE:   {ensemble_result} (Prob: {ensemble_prob*100:.1f}%)")
+        print(f"  VOICE:      {voice_result}  (Prob: {parkinson_voice_prob*100:.1f}%)")
+        print(f"  UPDRS:      {severity_score:.2f}")
         print("==============================\n")
         
         print("Analysis complete!")
@@ -205,17 +227,17 @@ async def analyze_full(
                 "spiral": {
                     "prediction": spiral_result,
                     "probability": spiral_prob,
-                    "status": 1 if spiral_prob > 0.5 else 0
+                    "status": 1 if spiral_prob > THRESHOLD else 0
                 },
                 "wave": {
                     "prediction": wave_result,
                     "probability": wave_prob,
-                    "status": 1 if wave_prob > 0.5 else 0
+                    "status": 1 if wave_prob > THRESHOLD else 0
                 },
                 "visual_ensemble": {
                     "prediction": ensemble_result,
                     "probability": ensemble_prob,
-                    "status": 1 if ensemble_prob > 0.5 else 0
+                    "status": 1 if ensemble_prob > THRESHOLD else 0
                 },
                 "severity": {
                     "score": round(severity_score, 2),

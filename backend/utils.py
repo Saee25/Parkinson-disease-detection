@@ -182,3 +182,42 @@ def preprocess_voice(audio_bytes):
     print("--------------------------------------\n")
 
     return np.array(features).reshape(1, -1)
+
+def preprocess_uploaded_image(image_bytes, size=(224, 224)):
+    """
+    Cleans a raw smartphone photo using OpenCV to match pristine clinical datasets.
+    Removes shadows, lighting gradients, and normalizes the pen strokes.
+    """
+    # 1. Decode raw bytes into an OpenCV image array
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    
+    if img is None:
+        raise ValueError("Could not decode the uploaded image.")
+
+    # 2. Convert to Grayscale (strips out color temperature from room lighting)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # 3. ADAPTIVE THRESHOLDING (The Magic Step)
+    # This looks at small blocks of the image (11x11 pixels). 
+    # It forces the background to be pure white (255) and the pen strokes pure black (0),
+    # completely eliminating shadows from the user's hand or phone.
+    cleaned = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+    )
+
+    # 4. Resize to fit PyTorch ResNet18
+    resized = cv2.resize(cleaned, size)
+
+    # 5. Convert back to 3-channel RGB (ResNet expects color depth)
+    rgb = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
+
+    # 6. Apply standard ImageNet Normalization
+    normalized = rgb.astype('float32') / 255.0
+    mean = np.array([0.485, 0.456, 0.406])
+    std = np.array([0.229, 0.224, 0.225])
+    normalized = (normalized - mean) / std
+
+    # 7. Transpose for PyTorch (Channels, Height, Width) and add Batch dimension
+    transposed = np.transpose(normalized, (2, 0, 1))
+    return np.expand_dims(transposed, axis=0)
