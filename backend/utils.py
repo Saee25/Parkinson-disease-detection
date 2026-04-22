@@ -8,6 +8,8 @@ import librosa
 import numpy as np
 import soundfile as sf
 import parselmouth
+import torch
+import base64
 from parselmouth.praat import call
 from scipy.stats import kurtosis, skew
 
@@ -66,6 +68,7 @@ def preprocess_spiral(traces, size=(224, 224)):
     """
     Converts list of strokes/coordinates into a 224x224 RGB image
     and applies ImageNet normalization for ResNet18 (PyTorch).
+    Returns (tensor, original_rgb_uint8)
     """
     # Initialize a white background (255)
     bg = np.ones((500, 500), dtype=np.uint8) * 255
@@ -79,6 +82,10 @@ def preprocess_spiral(traces, size=(224, 224)):
     
     resized = cv2.resize(bg, size)
     rgb = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
+    
+    # Save a copy for Grad-CAM overlay
+    original_rgb = rgb.copy()
+    
     normalized = rgb.astype('float32') / 255.0
     
     mean = np.array([0.485, 0.456, 0.406])
@@ -86,7 +93,9 @@ def preprocess_spiral(traces, size=(224, 224)):
     normalized = (normalized - mean) / std
     
     transposed = np.transpose(normalized, (2, 0, 1))
-    return np.expand_dims(transposed, axis=0)
+    tensor = np.expand_dims(transposed, axis=0)
+    
+    return tensor, original_rgb
 
 
 def preprocess_voice(audio_bytes):
@@ -187,6 +196,7 @@ def preprocess_uploaded_image(image_bytes, size=(224, 224)):
     """
     Cleans a raw smartphone photo using OpenCV to match pristine clinical datasets.
     Removes shadows, lighting gradients, and normalizes the pen strokes.
+    Returns (tensor, original_rgb_uint8)
     """
     # 1. Decode raw bytes into an OpenCV image array
     nparr = np.frombuffer(image_bytes, np.uint8)
@@ -211,6 +221,9 @@ def preprocess_uploaded_image(image_bytes, size=(224, 224)):
 
     # 5. Convert back to 3-channel RGB (ResNet expects color depth)
     rgb = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
+    
+    # Save a copy for Grad-CAM overlay
+    original_rgb = rgb.copy()
 
     # 6. Apply standard ImageNet Normalization
     normalized = rgb.astype('float32') / 255.0
@@ -220,4 +233,87 @@ def preprocess_uploaded_image(image_bytes, size=(224, 224)):
 
     # 7. Transpose for PyTorch (Channels, Height, Width) and add Batch dimension
     transposed = np.transpose(normalized, (2, 0, 1))
-    return np.expand_dims(transposed, axis=0)
+    tensor = np.expand_dims(transposed, axis=0)
+    
+    return tensor, original_rgb
+
+def get_gradcam_heatmap(model, input_tensor, original_image):
+    """
+    Generates a Grad-CAM heatmap overlayed on the original image.
+    Returns a base64 encoded PNG string.
+    """
+    model.eval() 
+    
+    # We want to target the last convolutional layer in ResNet18
+    target_layer = model.layer4
+    
+    activations = []
+    gradients = []
+
+    def forward_hook(module, input, output):
+        activations.append(output)
+
+    def backward_hook(module, grad_input, grad_output):
+        # Full backward hook returns a tuple of gradients
+        gradients.append(grad_output[0])
+
+    h1 = target_layer.register_forward_hook(forward_hook)
+    h2 = target_layer.register_full_backward_hook(backward_hook)
+
+    # Convert numpy to torch tensor if needed
+    if isinstance(input_tensor, np.ndarray):
+        input_tensor = torch.from_numpy(input_tensor)
+    
+    # Ensure gradients are enabled for this specific tensor
+    input_tensor = input_tensor.clone().detach().requires_grad_(True)
+
+    # Enable gradients globally for this calculation
+    with torch.set_grad_enabled(True):
+        # Forward pass
+        model.zero_grad()
+        output = model(input_tensor)
+        
+        # Backward pass
+        # Since it's binary with Sigmoid, we backprop the probability score
+        output.backward()
+
+    if not gradients or not activations:
+        h1.remove()
+        h2.remove()
+        return None
+
+    # Process Grad-CAM (using the last activation/gradient captured)
+    grads = gradients[-1]
+    acts = activations[-1]
+    
+    weights = torch.mean(grads, dim=(2, 3), keepdim=True)
+    cam = torch.sum(weights * acts, dim=1, keepdim=True)
+    cam = torch.relu(cam)
+    
+    # Upsample and normalize
+    cam = torch.nn.functional.interpolate(cam, size=(224, 224), mode='bilinear', align_corners=False)
+    cam = cam.squeeze().detach().cpu().numpy()
+    
+    # Handle division by zero
+    denom = (cam.max() - cam.min())
+    if denom == 0:
+        cam = np.zeros_like(cam)
+    else:
+        cam = (cam - cam.min()) / denom
+    
+    # Cleanup hooks
+    h1.remove()
+    h2.remove()
+
+    # Apply colormap and overlay
+    heatmap = cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET)
+    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+    
+    # Overlay (0.6 original, 0.4 heatmap)
+    overlayed = cv2.addWeighted(original_image, 0.6, heatmap, 0.4, 0)
+    
+    # Convert to Base64
+    _, buffer = cv2.imencode('.png', cv2.cvtColor(overlayed, cv2.COLOR_RGB2BGR))
+    base64_str = base64.b64encode(buffer).decode('utf-8')
+    
+    return f"data:image/png;base64,{base64_str}"

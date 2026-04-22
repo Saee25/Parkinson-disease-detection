@@ -17,7 +17,7 @@ if _BACKEND_DIR not in sys.path:
     sys.path.insert(0, _BACKEND_DIR)
 
 # IMPORT ALL PREPROCESSORS INCLUDING THE NEW OPENCV CLEANER
-from utils import preprocess_voice, preprocess_spiral, preprocess_uploaded_image
+from utils import preprocess_voice, preprocess_spiral, preprocess_uploaded_image, get_gradcam_heatmap
 
 # Global variables to store models
 MODELS = {}
@@ -127,11 +127,11 @@ async def analyze_full(
         if spiralFile:
             print(" -> Detected Physical Photo Upload. Running OpenCV cleaner...")
             spiral_bytes = await spiralFile.read()
-            spiral_img_array = preprocess_uploaded_image(spiral_bytes)
+            spiral_img_array, spiral_orig = preprocess_uploaded_image(spiral_bytes)
         elif spiralData:
             print(" -> Detected Digital Canvas Data. Drawing strokes...")
             spiral_json = json.loads(spiralData)
-            spiral_img_array = preprocess_spiral(spiral_json.get("strokes", []))
+            spiral_img_array, spiral_orig = preprocess_spiral(spiral_json.get("strokes", []))
         else:
             raise ValueError("No spiral data provided. Please draw or upload a photo.")
 
@@ -141,6 +141,14 @@ async def analyze_full(
             spiral_prob = float(MODELS["spiral"](spiral_tensor).item())
         spiral_result = "Parkinson's Detected" if spiral_prob > THRESHOLD else "Healthy"
 
+        # --- GENERATE SPIRAL GRAD-CAM ---
+        print("Generating Spiral Grad-CAM...")
+        try:
+            spiral_heatmap = get_gradcam_heatmap(MODELS["spiral"], spiral_tensor, spiral_orig)
+        except Exception as e:
+            print(f"Error generating spiral Grad-CAM: {e}")
+            spiral_heatmap = None
+
         # ==========================================
         # 1B. Parse and Predict Wave Data
         # ==========================================
@@ -148,11 +156,11 @@ async def analyze_full(
         if waveFile:
             print(" -> Detected Physical Photo Upload. Running OpenCV cleaner...")
             wave_bytes = await waveFile.read()
-            wave_img_array = preprocess_uploaded_image(wave_bytes)
+            wave_img_array, wave_orig = preprocess_uploaded_image(wave_bytes)
         elif waveData:
             print(" -> Detected Digital Canvas Data. Drawing strokes...")
             wave_json = json.loads(waveData)
-            wave_img_array = preprocess_spiral(wave_json.get("strokes", [])) 
+            wave_img_array, wave_orig = preprocess_spiral(wave_json.get("strokes", [])) 
         else:
             raise ValueError("No wave data provided. Please draw or upload a photo.")
 
@@ -161,6 +169,14 @@ async def analyze_full(
         with torch.no_grad():
             wave_prob = float(MODELS["wave"](wave_tensor).item())
         wave_result = "Parkinson's Detected" if wave_prob > THRESHOLD else "Healthy"
+
+        # --- GENERATE WAVE GRAD-CAM ---
+        print("Generating Wave Grad-CAM...")
+        try:
+            wave_heatmap = get_gradcam_heatmap(MODELS["wave"], wave_tensor, wave_orig)
+        except Exception as e:
+            print(f"Error generating wave Grad-CAM: {e}")
+            wave_heatmap = None
 
         # ==========================================
         # 1C. Calculate Visual Ensemble Score
@@ -227,12 +243,14 @@ async def analyze_full(
                 "spiral": {
                     "prediction": spiral_result,
                     "probability": spiral_prob,
-                    "status": 1 if spiral_prob > THRESHOLD else 0
+                    "status": 1 if spiral_prob > THRESHOLD else 0,
+                    "heatmap": spiral_heatmap
                 },
                 "wave": {
                     "prediction": wave_result,
                     "probability": wave_prob,
-                    "status": 1 if wave_prob > THRESHOLD else 0
+                    "status": 1 if wave_prob > THRESHOLD else 0,
+                    "heatmap": wave_heatmap
                 },
                 "visual_ensemble": {
                     "prediction": ensemble_result,
