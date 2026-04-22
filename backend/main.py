@@ -2,7 +2,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import joblib
-import tensorflow as tf
+import torch
+import torch.nn as nn
+from torchvision import models as pt_models
 import os
 import sys
 import json
@@ -23,11 +25,37 @@ async def lifespan(app: FastAPI):
     global MODELS_LOADED
     base_path = os.path.join(os.path.dirname(__file__), "models")
     try:
+        # Load Scikit-Learn Models (Voice & Severity)
         MODELS["voice"] = joblib.load(os.path.join(base_path, "voice_model.pkl"))
         MODELS["voice_scaler"] = joblib.load(os.path.join(base_path, "voice_scaler.pkl"))
         MODELS["severity"] = joblib.load(os.path.join(base_path, "severity_model.pkl"))
         MODELS["severity_scaler"] = joblib.load(os.path.join(base_path, "severity_scaler.pkl"))
-        MODELS["spiral"] = tf.keras.models.load_model(os.path.join(base_path, "spiral_model.h5"))
+        
+        # --- LOAD PYTORCH RESNET MODEL FOR SPIRALS ---
+        print("Loading PyTorch ResNet18 model...")
+        device = torch.device("cpu")
+        
+        # 1. Rebuild the architecture
+        spiral_model = pt_models.resnet18(weights=None)
+        num_ftrs = spiral_model.fc.in_features
+        spiral_model.fc = nn.Sequential(
+            nn.Linear(num_ftrs, 64),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(64, 1),
+            nn.Sigmoid()
+        )
+        
+        # 2. Load the saved weights
+        model_path = os.path.join(base_path, "spiral_resnet18.pth")
+        spiral_model.load_state_dict(torch.load(model_path, map_location=device))
+        
+        # 3. Set to evaluation mode
+        spiral_model.eval()
+        
+        MODELS["spiral"] = spiral_model
+        # ---------------------------------------------
+        
         MODELS_LOADED = True
         print("✅ All models and scalers loaded successfully")
     except Exception as e:
@@ -48,12 +76,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-
 @app.get("/")
 async def root():
     return {"status": "online", "message": "Parkinson's Diagnostic Engine Running"}
-
 
 @app.get("/health")
 async def health():
@@ -70,19 +95,29 @@ async def analyze_full(
     if not MODELS_LOADED:
         raise HTTPException(status_code=503, detail="Models are not loaded. Check server logs.")
     try:
-        # 1. Parse Spiral Data
+        # ==========================================
+        # 1. Parse and Predict Spiral Data (PyTorch)
+        # ==========================================
         print("Parsing spiral data...")
         spiral_json = json.loads(spiralData)
         traces = spiral_json.get("strokes", [])
         
-        # Preprocess and Predict Spiral
         print("Preprocessing spiral...")
-        spiral_img = preprocess_spiral(traces)
-        print("Predicting spiral...")
-        spiral_prob = float(MODELS["spiral"].predict(spiral_img, verbose=0)[0][0])
+        spiral_img_array = preprocess_spiral(traces)
+        
+        print("Predicting spiral with PyTorch...")
+        # Convert numpy array to PyTorch tensor
+        img_tensor = torch.tensor(spiral_img_array, dtype=torch.float32)
+        
+        with torch.no_grad(): # Disable gradient tracking for fast inference
+            output = MODELS["spiral"](img_tensor)
+            spiral_prob = float(output.item())
+            
         spiral_result = "Parkinson's Detected" if spiral_prob > 0.5 else "Healthy"
 
-        # 2. Process Voice Data
+        # ==========================================
+        # 2. Process and Predict Voice Data (Scikit-Learn)
+        # ==========================================
         print("Reading voice blob...")
         audio_content = await voiceBlob.read()
         print(f"Voice blob size: {len(audio_content)} bytes")
@@ -91,30 +126,39 @@ async def analyze_full(
         voice_features = preprocess_voice(audio_content)
         print(f"Voice features extracted: {voice_features.shape}")
         
-        # Scale voice features
         print("Scaling voice features...")
         voice_scaled = MODELS["voice_scaler"].transform(voice_features)
         
-        # Voice Classification (RandomForest → class probabilities)
         print("Predicting voice...")
         voice_clf = MODELS["voice"]
         voice_proba = voice_clf.predict_proba(voice_scaled)[0]
         voice_prediction = int(voice_clf.predict(voice_scaled)[0])
         voice_confidence = float(np.max(voice_proba))
+        
         classes = list(voice_clf.classes_)
         try:
             pd_idx = classes.index(1)
         except ValueError:
             pd_idx = len(classes) - 1
+            
         parkinson_voice_prob = float(voice_proba[pd_idx])
         voice_result = "Parkinson's Detected" if voice_prediction == 1 else "Healthy"
         
+        # ==========================================
         # 3. Predict Severity (UPDRS)
+        # ==========================================
         print("Predicting severity...")
         # The severity model uses 16 acoustic features (indices 3-17 and 21 from the 22-vector)
         severity_features = np.concatenate([voice_features[:, 3:18], voice_features[:, 21:22]], axis=1)
         severity_scaled = MODELS["severity_scaler"].transform(severity_features)
         severity_score = float(MODELS["severity"].predict(severity_scaled)[0])
+        
+        print("\n=== FINAL ANALYSIS SUMMARY ===")
+        print(f"  SPIRAL: {spiral_result} (Prob: {spiral_prob*100:.1f}%)")
+        print(f"  VOICE:  {voice_result} (Prob: {parkinson_voice_prob*100:.1f}%)")
+        print(f"  UPDRS:  {severity_score:.2f}")
+        print("==============================\n")
+        
         print("Analysis complete!")
 
         return {
@@ -145,5 +189,4 @@ async def analyze_full(
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="127.0.0.1", port=8000)

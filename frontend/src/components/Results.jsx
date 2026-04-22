@@ -124,7 +124,7 @@ const Results = ({ setActiveView }) => {
                 <td className="px-4 py-3 font-medium">Spiral / drawing</td>
                 <td className="px-4 py-3">{results.spiral.prediction}</td>
                 <td className="px-4 py-3">{(results.spiral.probability * 100).toFixed(1)}% P(PD)</td>
-                <td className="px-4 py-3 text-slate-600">Spiral CNN (100×100 RGB)</td>
+                <td className="px-4 py-3 text-slate-600">Spiral ResNet18 (224×224 RGB)</td>
               </tr>
               <tr>
                 <td className="px-4 py-3 font-medium">Severity (acoustic)</td>

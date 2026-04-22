@@ -6,7 +6,9 @@ opencv-python
 librosa
 imageio-ffmpeg
 scipy
-tensorflow
+torch
+torchvision
+torchaudio
 scikit-learn
 joblib
 pandas
