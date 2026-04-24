@@ -16,12 +16,47 @@ _BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 if _BACKEND_DIR not in sys.path:
     sys.path.insert(0, _BACKEND_DIR)
 
-# IMPORT ALL PREPROCESSORS INCLUDING THE NEW OPENCV CLEANER
 from utils import preprocess_voice, preprocess_spiral, preprocess_uploaded_image, get_gradcam_heatmap
 
 # Global variables to store models
 MODELS = {}
 MODELS_LOADED = False
+
+
+def _build_spiral_head(model):
+    """
+    Spiral model uses the targeted ensemble head: 512 -> 128 -> 1
+    (from train_spiral_targeted.py, layer4 fine-tuned only)
+    """
+    num_ftrs = model.fc.in_features
+    model.fc = nn.Sequential(
+        nn.Linear(num_ftrs, 128),
+        nn.ReLU(),
+        nn.Dropout(0.35),
+        nn.Linear(128, 1),
+        nn.Sigmoid()
+    )
+    return model
+
+
+def _build_wave_head(model):
+    """
+    Wave model uses the v3 wider head: 512 -> 256 -> 64 -> 1
+    (from train_models.py v3, layer3+layer4 fine-tuned)
+    """
+    num_ftrs = model.fc.in_features
+    model.fc = nn.Sequential(
+        nn.Linear(num_ftrs, 256),
+        nn.GELU(),
+        nn.Dropout(0.4),
+        nn.Linear(256, 64),
+        nn.GELU(),
+        nn.Dropout(0.2),
+        nn.Linear(64, 1),
+        nn.Sigmoid()
+    )
+    return model
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -33,49 +68,35 @@ async def lifespan(app: FastAPI):
         MODELS["voice_scaler"] = joblib.load(os.path.join(base_path, "voice_scaler.pkl"))
         MODELS["severity"] = joblib.load(os.path.join(base_path, "severity_model.pkl"))
         MODELS["severity_scaler"] = joblib.load(os.path.join(base_path, "severity_scaler.pkl"))
-        
+
         device = torch.device("cpu")
-        
+
         # --- LOAD PYTORCH RESNET MODEL FOR SPIRALS ---
         print("Loading PyTorch ResNet18 model for Spirals...")
         spiral_model = pt_models.resnet18(weights=None)
-        num_ftrs = spiral_model.fc.in_features
-        spiral_model.fc = nn.Sequential(
-            nn.Linear(num_ftrs, 64),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(64, 1),
-            nn.Sigmoid()
-        )
+        spiral_model = _build_spiral_head(spiral_model)
         spiral_model_path = os.path.join(base_path, "spiral_resnet18.pth")
-        spiral_model.load_state_dict(torch.load(spiral_model_path, map_location=device))
+        spiral_model.load_state_dict(torch.load(spiral_model_path, map_location=device), strict=False)
         spiral_model.eval()
         MODELS["spiral"] = spiral_model
-        
+
         # --- LOAD PYTORCH RESNET MODEL FOR WAVES ---
         print("Loading PyTorch ResNet18 model for Waves...")
         wave_model = pt_models.resnet18(weights=None)
-        wave_model.fc = nn.Sequential(
-            nn.Linear(num_ftrs, 64),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(64, 1),
-            nn.Sigmoid()
-        )
+        wave_model = _build_wave_head(wave_model)
         wave_model_path = os.path.join(base_path, "wave_resnet18.pth")
-        wave_model.load_state_dict(torch.load(wave_model_path, map_location=device))
+        wave_model.load_state_dict(torch.load(wave_model_path, map_location=device), strict=False)
         wave_model.eval()
         MODELS["wave"] = wave_model
-        # ---------------------------------------------
-        
+
         MODELS_LOADED = True
-        print("✅ All models and scalers loaded successfully")
+        print("All models and scalers loaded successfully")
     except Exception as e:
-        print(f"❌ Error loading models: {e}")
-        print("⚠️  API will start but /analyze/full will return an error until models are available.")
+        print(f"Error loading models: {e}")
+        print("API will start but /analyze/full will return an error until models are available.")
     yield  # App runs here
     MODELS.clear()
-    print("🛑 Models unloaded, shutting down.")
+    print("Models unloaded, shutting down.")
 
 app = FastAPI(title="Parkinson's Disease Diagnostic API", lifespan=lifespan)
 
@@ -101,10 +122,7 @@ async def health():
 
 @app.post("/analyze/full")
 async def analyze_full(
-    # The only mandatory file is the voice recording
     voiceBlob: UploadFile = File(...),
-    
-    # NEW: Making image inputs optional so it accepts Strings OR Files
     spiralData: Optional[str] = Form(None),
     waveData: Optional[str] = Form(None),
     spiralFile: Optional[UploadFile] = File(None),
@@ -114,8 +132,8 @@ async def analyze_full(
         raise HTTPException(status_code=503, detail="Models are not loaded. Check server logs.")
     try:
         # =====================================================================
-        # 🚨 DOMAIN SHIFT MITIGATION THRESHOLD 🚨
-        # Adjusting from 0.50 to 0.70 to account for laptop trackpad aliasing 
+        # DOMAIN SHIFT MITIGATION THRESHOLD
+        # Adjusting from 0.50 to 0.70 to account for laptop trackpad aliasing
         # and ambient microphone echo.
         # =====================================================================
         THRESHOLD = 0.70
@@ -160,7 +178,7 @@ async def analyze_full(
         elif waveData:
             print(" -> Detected Digital Canvas Data. Drawing strokes...")
             wave_json = json.loads(waveData)
-            wave_img_array, wave_orig = preprocess_spiral(wave_json.get("strokes", [])) 
+            wave_img_array, wave_orig = preprocess_spiral(wave_json.get("strokes", []))
         else:
             raise ValueError("No wave data provided. Please draw or upload a photo.")
 
@@ -190,28 +208,28 @@ async def analyze_full(
         print("\nReading voice blob...")
         audio_content = await voiceBlob.read()
         print(f"Voice blob size: {len(audio_content)} bytes")
-        
+
         print("Preprocessing voice...")
         voice_features = preprocess_voice(audio_content)
-        
+
         print("Scaling voice features...")
         voice_scaled = MODELS["voice_scaler"].transform(voice_features)
-        
+
         print("Predicting voice...")
         voice_clf = MODELS["voice"]
         voice_proba = voice_clf.predict_proba(voice_scaled)[0]
         voice_confidence = float(np.max(voice_proba))
-        
+
         classes = list(voice_clf.classes_)
         try:
             pd_idx = classes.index(1)
         except ValueError:
             pd_idx = len(classes) - 1
-            
+
         parkinson_voice_prob = float(voice_proba[pd_idx])
         voice_prediction = 1 if parkinson_voice_prob > THRESHOLD else 0
         voice_result = "Parkinson's Detected" if voice_prediction == 1 else "Healthy"
-        
+
         # ==========================================
         # 3. Predict Severity (UPDRS)
         # ==========================================
@@ -219,7 +237,7 @@ async def analyze_full(
         severity_features = np.concatenate([voice_features[:, 3:18], voice_features[:, 21:22]], axis=1)
         severity_scaled = MODELS["severity_scaler"].transform(severity_features)
         severity_score = float(MODELS["severity"].predict(severity_scaled)[0])
-        
+
         print("\n=== FINAL ANALYSIS SUMMARY ===")
         print(f"  THRESHOLD:  > {THRESHOLD*100:.0f}%")
         print(f"  SPIRAL:     {spiral_result} (Prob: {spiral_prob*100:.1f}%)")
@@ -228,7 +246,7 @@ async def analyze_full(
         print(f"  VOICE:      {voice_result}  (Prob: {parkinson_voice_prob*100:.1f}%)")
         print(f"  UPDRS:      {severity_score:.2f}")
         print("==============================\n")
-        
+
         print("Analysis complete!")
 
         return {
