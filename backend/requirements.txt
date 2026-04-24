@@ -12,3 +12,5 @@ torchaudio
 scikit-learn
 joblib
 pandas
+parselmouth
+soundfile

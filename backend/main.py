@@ -27,14 +27,17 @@ def _build_spiral_head(model):
     """
     Spiral model uses the targeted ensemble head: 512 -> 128 -> 1
     (from train_spiral_targeted.py, layer4 fine-tuned only)
+
+    NOTE: No nn.Sigmoid() here. Training used BCEWithLogitsLoss which
+    expects raw logits. torch.sigmoid() is applied explicitly at inference.
+    Adding Sigmoid here would apply it twice and squash all outputs near 0.5.
     """
     num_ftrs = model.fc.in_features
     model.fc = nn.Sequential(
         nn.Linear(num_ftrs, 128),
         nn.ReLU(),
         nn.Dropout(0.35),
-        nn.Linear(128, 1),
-        nn.Sigmoid()
+        nn.Linear(128, 1)   # raw logit — sigmoid applied at inference
     )
     return model
 
@@ -42,7 +45,11 @@ def _build_spiral_head(model):
 def _build_wave_head(model):
     """
     Wave model uses the v3 wider head: 512 -> 256 -> 64 -> 1
-    (from train_models.py v3, layer3+layer4 fine-tuned)
+    (from train_wave_multiseed.py, layer3+layer4 fine-tuned)
+
+    NOTE: No nn.Sigmoid() here. Training used BCEWithLogitsLoss which
+    expects raw logits. torch.sigmoid() is applied explicitly at inference.
+    Adding Sigmoid here would apply it twice and squash all outputs near 0.5.
     """
     num_ftrs = model.fc.in_features
     model.fc = nn.Sequential(
@@ -52,8 +59,7 @@ def _build_wave_head(model):
         nn.Linear(256, 64),
         nn.GELU(),
         nn.Dropout(0.2),
-        nn.Linear(64, 1),
-        nn.Sigmoid()
+        nn.Linear(64, 1)   # raw logit — sigmoid applied at inference
     )
     return model
 
@@ -76,7 +82,7 @@ async def lifespan(app: FastAPI):
         spiral_model = pt_models.resnet18(weights=None)
         spiral_model = _build_spiral_head(spiral_model)
         spiral_model_path = os.path.join(base_path, "spiral_resnet18.pth")
-        spiral_model.load_state_dict(torch.load(spiral_model_path, map_location=device), strict=False)
+        spiral_model.load_state_dict(torch.load(spiral_model_path, map_location=device), strict=True)
         spiral_model.eval()
         MODELS["spiral"] = spiral_model
 
@@ -85,7 +91,7 @@ async def lifespan(app: FastAPI):
         wave_model = pt_models.resnet18(weights=None)
         wave_model = _build_wave_head(wave_model)
         wave_model_path = os.path.join(base_path, "wave_resnet18.pth")
-        wave_model.load_state_dict(torch.load(wave_model_path, map_location=device), strict=False)
+        wave_model.load_state_dict(torch.load(wave_model_path, map_location=device), strict=True)
         wave_model.eval()
         MODELS["wave"] = wave_model
 
@@ -132,11 +138,13 @@ async def analyze_full(
         raise HTTPException(status_code=503, detail="Models are not loaded. Check server logs.")
     try:
         # =====================================================================
-        # DOMAIN SHIFT MITIGATION THRESHOLD
-        # Adjusting from 0.50 to 0.70 to account for laptop trackpad aliasing
-        # and ambient microphone echo.
+        # CLASSIFICATION THRESHOLD
+        # 0.50 is the correct threshold for a calibrated sigmoid output.
+        # The previous value of 0.70 was compensating for a bug where
+        # nn.Sigmoid() was applied inside the head AND again at inference,
+        # squashing all probabilities near 0.5. That bug is now fixed.
         # =====================================================================
-        THRESHOLD = 0.70
+        THRESHOLD = 0.50
 
         # ==========================================
         # 1A. Parse and Predict Spiral Data
@@ -156,7 +164,8 @@ async def analyze_full(
         print("Predicting spiral with PyTorch...")
         spiral_tensor = torch.tensor(spiral_img_array, dtype=torch.float32)
         with torch.no_grad():
-            spiral_prob = float(MODELS["spiral"](spiral_tensor).item())
+            # Model outputs raw logit — apply sigmoid here (once, correctly)
+            spiral_prob = float(torch.sigmoid(MODELS["spiral"](spiral_tensor)).item())
         spiral_result = "Parkinson's Detected" if spiral_prob > THRESHOLD else "Healthy"
 
         # --- GENERATE SPIRAL GRAD-CAM ---
@@ -185,7 +194,8 @@ async def analyze_full(
         print("Predicting wave with PyTorch...")
         wave_tensor = torch.tensor(wave_img_array, dtype=torch.float32)
         with torch.no_grad():
-            wave_prob = float(MODELS["wave"](wave_tensor).item())
+            # Model outputs raw logit — apply sigmoid here (once, correctly)
+            wave_prob = float(torch.sigmoid(MODELS["wave"](wave_tensor)).item())
         wave_result = "Parkinson's Detected" if wave_prob > THRESHOLD else "Healthy"
 
         # --- GENERATE WAVE GRAD-CAM ---
@@ -277,7 +287,7 @@ async def analyze_full(
                 },
                 "severity": {
                     "score": round(severity_score, 2),
-                    "margin_of_error": 2.39
+                    "margin_of_error": 5.34  # MAE from Phase2_SeverityTracker.ipynb
                 }
             }
         }

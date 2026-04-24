@@ -184,7 +184,7 @@ def preprocess_voice(audio_bytes):
     s1_p = skew(rms)
     s2_p = kurtosis(rms)
     d2_p = np.mean(librosa.feature.poly_features(y=y, order=1))
-    ppe_p = np.std(voiced_probs) if voiced_probs is not None else 0
+    ppe_p = np.nanstd(voiced_probs) if voiced_probs is not None else 0.0
 
 
     # Clean up temp file
@@ -211,49 +211,71 @@ def preprocess_voice(audio_bytes):
     print("--------------------------------------\n")
 
 
-    return np.array(features).reshape(1, -1)
-
+    features_array = np.array(features, dtype=np.float64).reshape(1, -1)
+    # Replace any NaN/Inf that slipped through (e.g. skew/kurtosis on constant audio)
+    features_array = np.nan_to_num(features_array, nan=0.0, posinf=0.0, neginf=0.0)
+    return features_array
 
 def preprocess_uploaded_image(image_bytes, size=(224, 224)):
     """
-    Cleans a raw smartphone photo using OpenCV.
-    Matches the PyTorch transforms Pipeline USED DURING TRAINING exactly:
-    - Load RGB image
-    - Resize to 224x224
-    - Convert to float32 [0.0, 1.0]
-    - Normalize (ImageNet mean & std)
+    Cleans a raw smartphone photo using OpenCV before feeding to ResNet18.
+
+    Key step: Adaptive Binarization.
+    Training data = clean scanned drawings: pure white background, solid black lines.
+    Phone photos  = paper grain texture, uneven lighting, JPEG noise.
+    Without binarization the paper texture reads as tremor artifacts -> Parkinson's.
+    Adaptive thresholding removes texture and produces clean strokes matching training.
+
+    Pipeline:
+      1. Decode JPEG/PNG bytes
+      2. Grayscale -> Gaussian blur (removes camera sensor noise)
+      3. Adaptive threshold -> clean binary image (dark strokes, white background)
+      4. Resize to 224x224
+      5. Convert to 3-channel RGB for ResNet18
+      6. ImageNet normalize
     """
-    # 1. Decode raw bytes into an OpenCV image array
+    # 1. Decode raw bytes
     nparr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-   
     if img is None:
         raise ValueError("Could not decode the uploaded image.")
 
+    # 2. Convert to grayscale (paper photos don't need colour)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # 2. Convert to RGB to match torchvision ImageFolder PIL loading
-    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    # 3. Gaussian blur — suppresses JPEG noise and paper grain before thresholding
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 
+    # 4. Adaptive thresholding — handles uneven phone lighting across the photo.
+    #    THRESH_BINARY: light background -> 255 (white), dark ink -> 0 (black).
+    #    blockSize=15: local neighbourhood size for threshold computation.
+    #    C=8: constant subtracted from local mean (tune ink sensitivity).
+    binary = cv2.adaptiveThreshold(
+        blurred, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        blockSize=15, C=8
+    )
 
-    # 3. Resize to fit PyTorch ResNet18 (mimic torchvision INTER_LINEAR)
-    resized = cv2.resize(rgb, size, interpolation=cv2.INTER_LINEAR)
+    # 5. Resize to 224x224
+    resized = cv2.resize(binary, size, interpolation=cv2.INTER_LINEAR)
 
+    # 6. Convert to 3-channel RGB (ResNet18 expects 3 channels)
+    rgb = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
 
-    # Save a copy for Grad-CAM overlay
-    original_rgb = resized.copy()
+    # Save copy for Grad-CAM overlay (before normalization)
+    original_rgb = rgb.copy()
 
-
-    # 4. Apply standard ImageNet Normalization
-    normalized = resized.astype('float32') / 255.0
+    # 7. ImageNet normalization
+    normalized = rgb.astype('float32') / 255.0
     mean = np.array([0.485, 0.456, 0.406])
-    std = np.array([0.229, 0.224, 0.225])
+    std  = np.array([0.229, 0.224, 0.225])
     normalized = (normalized - mean) / std
 
-
-    # 5. Transpose for PyTorch (Channels, Height, Width) and add Batch dimension
+    # 8. Transpose to (C, H, W) and add batch dimension
     transposed = np.transpose(normalized, (2, 0, 1))
     tensor = np.expand_dims(transposed, axis=0)
-   
+
     return tensor, original_rgb
 
 
