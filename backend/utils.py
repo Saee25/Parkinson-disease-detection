@@ -87,8 +87,29 @@ def preprocess_spiral(traces, size=(224, 224)):
             continue
         points = np.array([[p['x'], p['y']] for p in stroke], dtype=np.int32)
         # Draw black lines (0) on the white background with anti-aliasing
-        cv2.polylines(bg, [points], False, 0, thickness=4, lineType=cv2.LINE_AA)
+        cv2.polylines(bg, [points], False, 0, thickness=5, lineType=cv2.LINE_AA)
    
+    # Apply Gaussian blur to soften the perfectly sharp digital lines.
+    # This mimics the natural "ink bleed" and slight blur of pen strokes 
+    # in the scanned training data, reducing covariate shift.
+    bg = cv2.GaussianBlur(bg, (5, 5), 0)
+
+    # ---------------------------------------------------------
+    # CRITICAL FIX: Crop to Bounding Box
+    # ---------------------------------------------------------
+    # The training dataset images are cropped tightly around the 
+    # drawing. If we don't crop the 500x500 canvas, the model sees 
+    # a tiny drawing in a massive white void -> predicts Parkinson's.
+    coords = cv2.findNonZero(255 - bg)
+    if coords is not None:
+        x, y, w, h = cv2.boundingRect(coords)
+        pad = 20  # slight padding so it doesn't hit the absolute edge
+        x = max(0, x - pad)
+        y = max(0, y - pad)
+        w = min(bg.shape[1] - x, w + 2*pad)
+        h = min(bg.shape[0] - y, h + 2*pad)
+        bg = bg[y:y+h, x:x+w]
+
     resized = cv2.resize(bg, size, interpolation=cv2.INTER_LINEAR)
     rgb = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
    
