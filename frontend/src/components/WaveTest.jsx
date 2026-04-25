@@ -17,8 +17,9 @@ const WaveTest = ({ onBack }) => {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [inputType, setInputType] = useState('digital'); // 'digital' or 'physical'
 
-  const canvasSize = 500;
-  const centerY = canvasSize / 2;
+  const canvasWidth = 500;
+  const canvasHeight = 200;
+  const centerY = canvasHeight / 2;
 
   const drawTemplate = (ctx) => {
     ctx.beginPath();
@@ -27,8 +28,8 @@ const WaveTest = ({ onBack }) => {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    const amplitude = 120;
-    const frequency = 0.05;
+    const amplitude = 80;
+    const frequency = 0.075;
     const startX = 20;
     const endX = 480;
 
@@ -139,7 +140,7 @@ const WaveTest = ({ onBack }) => {
         const allStrokes = currentStroke.length > 0 ? [...traces, currentStroke] : traces;
         const finalData = {
           testType: 'Wave Drawing',
-          canvasBounds: { width: canvasSize, height: canvasSize },
+          canvasBounds: { width: canvasWidth, height: canvasHeight },
           strokes: allStrokes
         };
         saveTestResult('wave', finalData);
@@ -149,15 +150,15 @@ const WaveTest = ({ onBack }) => {
 
   return (
     <div className="flex flex-col items-center animate-fade-in w-full max-w-2xl mx-auto">
-      <div className="flex w-full items-center mb-6">
+      <div className="flex w-full items-center mb-4">
         <button onClick={onBack} className="flex items-center text-slate-600 hover:text-blue-600 transition-colors mr-4">
             <ChevronLeft className="w-6 h-6" /> Back
         </button>
         <h2 className="text-2xl font-bold text-slate-900">Wave Drawing Test</h2>
       </div>
 
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 w-full mb-6">
-          <div className="flex justify-center gap-4 mb-8">
+      <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-200 w-full mb-4">
+          <div className="flex justify-center gap-4 mb-4">
               <button 
                 onClick={() => setInputType('digital')}
                 className={`px-4 py-2 rounded-lg font-medium transition-all ${inputType === 'digital' ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
@@ -174,14 +175,14 @@ const WaveTest = ({ onBack }) => {
 
           {inputType === 'digital' ? (
               <div className="flex flex-col items-center">
-                  <p className="text-slate-600 mb-6 text-center">
+                  <p className="text-slate-600 mb-3 text-center text-sm sm:text-base">
                       Please carefully trace the rhythmic sine wave.
                   </p>
                   <canvas
                     ref={canvasRef}
-                    width={canvasSize}
-                    height={canvasSize}
-                    className="bg-slate-50 border-2 border-slate-200 rounded-xl cursor-crosshair touch-none mb-6"
+                    width={canvasWidth}
+                    height={canvasHeight}
+                    className="bg-slate-50 border-2 border-slate-200 rounded-xl cursor-crosshair touch-none mb-4 w-full max-w-[450px]"
                     onMouseDown={handleStart}
                     onMouseMove={handleMove}
                     onMouseUp={handleEnd}
@@ -202,12 +203,13 @@ const WaveTest = ({ onBack }) => {
               </div>
           ) : (
               <div className="flex flex-col items-center">
-                  <p className="text-slate-600 mb-6 text-center">
+                  <p className="text-slate-600 mb-3 text-center text-sm sm:text-base">
                       Draw a rhythmic sine wave on clean white paper, snap a photo, and upload it here.
                   </p>
                   <div 
                     onClick={() => fileInputRef.current.click()}
-                    className="w-full max-w-[400px] aspect-square bg-slate-50 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all mb-6 overflow-hidden relative group"
+                    className="w-full max-w-[450px] bg-slate-50 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all mb-4 overflow-hidden relative group"
+                    style={{ aspectRatio: '5/2' }}
                   >
                       {previewUrl ? (
                           <>
@@ -235,10 +237,10 @@ const WaveTest = ({ onBack }) => {
               </div>
           )}
 
-          <div className="mt-10 pt-6 border-t border-slate-100 flex justify-center">
+          <div className="mt-6 pt-4 border-t border-slate-100 flex justify-center">
               <button 
                 onClick={handleAnalyze}
-                className="flex items-center px-10 py-3 rounded-xl bg-blue-600 text-white hover:bg-blue-700 font-bold transition-all shadow-lg hover:shadow-xl transform active:scale-95"
+                className="flex items-center px-8 py-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 font-bold transition-all shadow-lg hover:shadow-xl transform active:scale-95"
               >
                 <Activity className="w-5 h-5 mr-2" /> Save & Continue
               </button>

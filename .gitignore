@@ -19,9 +19,17 @@ htmlcov/
 coverage.xml
 
 # --- Secrets / local config (never commit) ---
-.env
-.env.*
-!.env.example
+# --- Secrets / local config (never commit) ---
+**/.env
+**/.env.*
+!**/.env.example
+**/*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!jsconfig.json
+!eslint.config.js
+!firebase-config.json.example
 
 # --- Node / frontend ---
 frontend/node_modules/
