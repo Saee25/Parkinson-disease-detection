@@ -157,7 +157,11 @@ async def analyze_full(
         elif spiralData:
             print(" -> Detected Digital Canvas Data. Drawing strokes...")
             spiral_json = json.loads(spiralData)
-            spiral_img_array, spiral_orig = preprocess_spiral(spiral_json.get("strokes", []))
+            bounds = spiral_json.get("canvasBounds", {"width": 500, "height": 500})
+            spiral_img_array, spiral_orig = preprocess_spiral(
+                spiral_json.get("strokes", []),
+                canvas_bounds=(bounds["width"], bounds["height"])
+            )
         else:
             raise ValueError("No spiral data provided. Please draw or upload a photo.")
 
@@ -187,7 +191,11 @@ async def analyze_full(
         elif waveData:
             print(" -> Detected Digital Canvas Data. Drawing strokes...")
             wave_json = json.loads(waveData)
-            wave_img_array, wave_orig = preprocess_spiral(wave_json.get("strokes", []))
+            bounds = wave_json.get("canvasBounds", {"width": 500, "height": 500})
+            wave_img_array, wave_orig = preprocess_spiral(
+                wave_json.get("strokes", []),
+                canvas_bounds=(bounds["width"], bounds["height"])
+            )
         else:
             raise ValueError("No wave data provided. Please draw or upload a photo.")
 

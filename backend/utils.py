@@ -73,14 +73,34 @@ def _load_audio_mono(audio_bytes: bytes):
 
 
 
-def preprocess_spiral(traces, size=(224, 224)):
+def resize_with_pad(img, size=(224, 224)):
+    """
+    Resizes an image to the target size while maintaining aspect ratio by padding 
+    the shorter dimension with white (255) pixels.
+    """
+    h, w = img.shape[:2]
+    max_dim = max(h, w)
+    
+    if len(img.shape) == 3:
+        padded = np.ones((max_dim, max_dim, img.shape[2]), dtype=img.dtype) * 255
+    else:
+        padded = np.ones((max_dim, max_dim), dtype=img.dtype) * 255
+        
+    y_off = (max_dim - h) // 2
+    x_off = (max_dim - w) // 2
+    padded[y_off:y_off+h, x_off:x_off+w] = img
+    
+    return cv2.resize(padded, size, interpolation=cv2.INTER_LINEAR)
+
+def preprocess_spiral(traces, size=(224, 224), canvas_bounds=(500, 500)):
     """
     Converts list of strokes/coordinates into a 224x224 RGB image
     and applies ImageNet normalization for ResNet18 (PyTorch).
     Returns (tensor, original_rgb_uint8)
     """
     # Initialize a white background (255)
-    bg = np.ones((500, 500), dtype=np.uint8) * 255
+    width, height = int(canvas_bounds[0]), int(canvas_bounds[1])
+    bg = np.ones((height, width), dtype=np.uint8) * 255
    
     for stroke in traces:
         if len(stroke) < 2:
@@ -110,7 +130,7 @@ def preprocess_spiral(traces, size=(224, 224)):
         h = min(bg.shape[0] - y, h + 2*pad)
         bg = bg[y:y+h, x:x+w]
 
-    resized = cv2.resize(bg, size, interpolation=cv2.INTER_LINEAR)
+    resized = resize_with_pad(bg, size)
     rgb = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
    
     # Save a copy for Grad-CAM overlay
@@ -278,10 +298,21 @@ def preprocess_uploaded_image(image_bytes, size=(224, 224)):
         blockSize=15, C=8
     )
 
-    # 5. Resize to 224x224
-    resized = cv2.resize(binary, size, interpolation=cv2.INTER_LINEAR)
+    # 5. Crop to bounding box
+    coords = cv2.findNonZero(255 - binary)
+    if coords is not None:
+        x, y, w, h = cv2.boundingRect(coords)
+        pad = 20
+        x = max(0, x - pad)
+        y = max(0, y - pad)
+        w = min(binary.shape[1] - x, w + 2*pad)
+        h = min(binary.shape[0] - y, h + 2*pad)
+        binary = binary[y:y+h, x:x+w]
 
-    # 6. Convert to 3-channel RGB (ResNet18 expects 3 channels)
+    # 6. Resize with pad to maintain aspect ratio
+    resized = resize_with_pad(binary, size)
+
+    # 7. Convert to 3-channel RGB (ResNet18 expects 3 channels)
     rgb = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
 
     # Save copy for Grad-CAM overlay (before normalization)
